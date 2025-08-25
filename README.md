@@ -8,7 +8,6 @@ The UI and runtime are tuned for **low power** and **24/7 stability** on an e‑
 > Consider splitting secrets to `config_local.h` and adding it to your `.gitignore`.
 
 <img width="905" height="909" alt="rrr" src="https://github.com/user-attachments/assets/a12ffa93-5afc-4ea6-b41e-4391e965c5cb" />
-
 ---
 
 ## Highlights
