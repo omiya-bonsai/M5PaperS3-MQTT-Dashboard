@@ -27,6 +27,15 @@
 #endif
 #include "config.h"
 
+// [FIX] 'ColLayout' does not name a type エラーを修正するため、構造体定義と関数の前方宣言をファイルの先頭に移動
+struct ColLayout {
+  int labelW;
+  int valueW;
+  int gaugeW;
+  int gap;
+};
+static ColLayout computeCols();  // 関数の前方宣言を追加
+
 // ───────── Optional NTP (override in config.h) ─────────
 #ifndef ENABLE_NTP
 #define ENABLE_NTP 1
@@ -78,18 +87,10 @@ static constexpr uint32_t COLOR_LINE = 0xDDDDDDu;
 static constexpr int LEFT_PAD = 16;
 static constexpr int RIGHT_PAD = 16;
 
-// ---- NEW: Column ratio for Label:Value:Gauge = 3:2:5 ----
-static constexpr int COL_LABEL_RATIO = 3;
-static constexpr int COL_VALUE_RATIO = 2;
-static constexpr int COL_GAUGE_RATIO = 5;
-
-// ---- NEW: Column layout structure (moved here for proper declaration) ----
-struct ColLayout {
-  int labelW;
-  int valueW;
-  int gaugeW;
-  int gap;
-};
+// ---- Column ratio for Label:Value:Gauge = 30:15:55 ----
+static constexpr int COL_LABEL_RATIO = 30;
+static constexpr int COL_VALUE_RATIO = 15;
+static constexpr int COL_GAUGE_RATIO = 55;
 
 // backoff helper（Arduinoのmin競合を避ける自前キャップ）
 static inline uint32_t cap_u32(uint32_t v, uint32_t vmax) {
@@ -126,6 +127,24 @@ static const LayoutStyle STYLE_ULTRA = {
   &fonts::lgfxJapanGothic_20, &fonts::lgfxJapanGothic_16, &fonts::lgfxJapanGothic_16, &fonts::Font2, &fonts::Font2
 };
 LayoutStyle L = STYLE_NORMAL;
+
+// Column layout calculator for 30:15:55 split
+static ColLayout computeCols() {
+  ColLayout C;
+  int inner = M5.Display.width() - LEFT_PAD - RIGHT_PAD;
+  // two gaps: between label|value and value|gauge
+  int gapTotal = 2 * L.GAP_COL;
+  int avail = inner - gapTotal;
+  // avoid negatives
+  if (avail < 10) avail = 10;
+  int totalRatio = COL_LABEL_RATIO + COL_VALUE_RATIO + COL_GAUGE_RATIO;  // = 100
+  C.labelW = (avail * COL_LABEL_RATIO) / totalRatio;
+  C.valueW = (avail * COL_VALUE_RATIO) / totalRatio;
+  C.gaugeW = avail - C.labelW - C.valueW;  // remainder to gauge
+  C.gap = L.GAP_COL;
+  return C;
+}
+
 
 // ───────── MQTT / Sensors ─────────
 WiFiClient wifiClient;
@@ -392,7 +411,7 @@ String formatValueForColumn2(const String& s, int maxW) {
   while (t.length() > 0 && canvas.textWidth(t) + ellw > maxW) t.remove(t.length() - 1);
   return t.length() ? t + ell : ell;
 }
-// NEW: generic ellipsize for labels
+// Ellipsize for labels
 String ellipsizeToWidth(const String& s, int maxW) {
   if (canvas.textWidth(s) <= maxW) return s;
   String t = s, ell = "...";
@@ -466,23 +485,6 @@ void chooseStyleAndGlance(bool& showGlance) {
   }
   L = STYLE_ULTRA;
   showGlance = false;
-}
-
-// NEW: Column layout calculator for 3:2:5 split
-ColLayout computeCols() {
-  ColLayout C;
-  int inner = M5.Display.width() - LEFT_PAD - RIGHT_PAD;
-  // two gaps: between label|value and value|gauge
-  int gapTotal = 2 * L.GAP_COL;
-  int avail = inner - gapTotal;
-  // avoid negatives
-  if (avail < 10) avail = 10;
-  int totalRatio = COL_LABEL_RATIO + COL_VALUE_RATIO + COL_GAUGE_RATIO;  // = 10
-  C.labelW = (avail * COL_LABEL_RATIO) / totalRatio;
-  C.valueW = (avail * COL_VALUE_RATIO) / totalRatio;
-  C.gaugeW = avail - C.labelW - C.valueW;  // remainder to gauge
-  C.gap = L.GAP_COL;
-  return C;
 }
 
 // ───────── Wi-Fi / MQTT ─────────
@@ -680,14 +682,14 @@ void drawRow(int sensorIdx, int y) {
   const int W = M5.Display.width();
   ColLayout C = computeCols();
 
-  // Label column (left-aligned), ellipsized to fit 3/10 width
+  // Label column (left-aligned), ellipsized to fit 30%
   canvas.setFont(L.LABEL_FONT);
   canvas.setTextColor(COLOR_DIM, COLOR_BG);
   canvas.setTextDatum(textdatum_t::top_left);
   String labelTxt = ellipsizeToWidth(String(sensors[sensorIdx].label), C.labelW - 2);
   canvas.drawString(labelTxt, LEFT_PAD, y);
 
-  // Determine if we draw a gauge in the 5/10 area
+  // Determine if we draw a gauge in the 55% area
   const bool showBinary = isBinaryIndex(sensorIdx);
   const bool showNumericGauge = g_enable[sensorIdx];
   const bool showGauge = showBinary || showNumericGauge;
@@ -705,7 +707,7 @@ void drawRow(int sensorIdx, int y) {
   String disp = formatValueForColumn2(raw, valueAreaW - 2);
   canvas.drawString(disp, valueRightX, y);
 
-  // Gauge (if enabled) occupies the 5/10 area
+  // Gauge (if enabled) occupies the 55% area
   if (showGauge) {
     int gx = LEFT_PAD + C.labelW + C.gap + C.valueW + C.gap;
     int gy = y + (L.LINE_H - L.GAUGE_H) / 2;
