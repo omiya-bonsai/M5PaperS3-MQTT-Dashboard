@@ -1,5 +1,7 @@
 # M5PaperS3 MQTT Dashboard (English README)
 
+👉 [日本語版はこちら](./README-ja.md)
+
 This project turns **M5Stack M5PaperS3 (ESP32‑S3 + e‑paper)** into a **single‑page, always‑on MQTT dashboard** for home/room environment data.  
 It subscribes to multiple MQTT topics that deliver JSON payloads and **renders everything on one page**—no paging or scrolling.  
 The UI and runtime are tuned for **low power** and **24/7 stability** on an e‑paper display.
