@@ -78,6 +78,19 @@ static constexpr uint32_t COLOR_LINE = 0xDDDDDDu;
 static constexpr int LEFT_PAD = 16;
 static constexpr int RIGHT_PAD = 16;
 
+// ---- NEW: Column ratio for Label:Value:Gauge = 3:2:5 ----
+static constexpr int COL_LABEL_RATIO = 3;
+static constexpr int COL_VALUE_RATIO = 2;
+static constexpr int COL_GAUGE_RATIO = 5;
+
+// ---- NEW: Column layout structure (moved here for proper declaration) ----
+struct ColLayout {
+  int labelW;
+  int valueW;
+  int gaugeW;
+  int gap;
+};
+
 // backoff helper（Arduinoのmin競合を避ける自前キャップ）
 static inline uint32_t cap_u32(uint32_t v, uint32_t vmax) {
   return (v > vmax) ? vmax : v;
@@ -89,10 +102,10 @@ struct LayoutStyle {
   int FOOTER_H;
   int LINE_H;
   int SEC_EXTRA;
-  int GAUGE_W;
+  int GAUGE_W;  // kept for compatibility, not used for horizontal layout with ratios
   int GAUGE_H;
-  int VALUE_COL_W;
-  int GAP_COL;
+  int VALUE_COL_W;  // kept for compatibility, not used for horizontal layout with ratios
+  int GAP_COL;      // horizontal gap between columns
   int GLANCE_H;
   const lgfx::IFont* TITLE_FONT;
   const lgfx::IFont* LABEL_FONT;
@@ -379,6 +392,15 @@ String formatValueForColumn2(const String& s, int maxW) {
   while (t.length() > 0 && canvas.textWidth(t) + ellw > maxW) t.remove(t.length() - 1);
   return t.length() ? t + ell : ell;
 }
+// NEW: generic ellipsize for labels
+String ellipsizeToWidth(const String& s, int maxW) {
+  if (canvas.textWidth(s) <= maxW) return s;
+  String t = s, ell = "...";
+  int ellw = canvas.textWidth(ell);
+  while (t.length() > 0 && canvas.textWidth(t) + ellw > maxW) t.remove(t.length() - 1);
+  return t.length() ? t + ell : ell;
+}
+
 String formatDateTime(time_t ts) {
   if (ts <= 0) return String("--");
   struct tm tmv;
@@ -444,6 +466,23 @@ void chooseStyleAndGlance(bool& showGlance) {
   }
   L = STYLE_ULTRA;
   showGlance = false;
+}
+
+// NEW: Column layout calculator for 3:2:5 split
+ColLayout computeCols() {
+  ColLayout C;
+  int inner = M5.Display.width() - LEFT_PAD - RIGHT_PAD;
+  // two gaps: between label|value and value|gauge
+  int gapTotal = 2 * L.GAP_COL;
+  int avail = inner - gapTotal;
+  // avoid negatives
+  if (avail < 10) avail = 10;
+  int totalRatio = COL_LABEL_RATIO + COL_VALUE_RATIO + COL_GAUGE_RATIO;  // = 10
+  C.labelW = (avail * COL_LABEL_RATIO) / totalRatio;
+  C.valueW = (avail * COL_VALUE_RATIO) / totalRatio;
+  C.gaugeW = avail - C.labelW - C.valueW;  // remainder to gauge
+  C.gap = L.GAP_COL;
+  return C;
 }
 
 // ───────── Wi-Fi / MQTT ─────────
@@ -639,32 +678,44 @@ void drawHeader() {
 
 void drawRow(int sensorIdx, int y) {
   const int W = M5.Display.width();
+  ColLayout C = computeCols();
+
+  // Label column (left-aligned), ellipsized to fit 3/10 width
   canvas.setFont(L.LABEL_FONT);
   canvas.setTextColor(COLOR_DIM, COLOR_BG);
   canvas.setTextDatum(textdatum_t::top_left);
-  canvas.drawString(sensors[sensorIdx].label, LEFT_PAD, y);
+  String labelTxt = ellipsizeToWidth(String(sensors[sensorIdx].label), C.labelW - 2);
+  canvas.drawString(labelTxt, LEFT_PAD, y);
 
+  // Determine if we draw a gauge in the 5/10 area
   const bool showBinary = isBinaryIndex(sensorIdx);
   const bool showNumericGauge = g_enable[sensorIdx];
   const bool showGauge = showBinary || showNumericGauge;
 
+  // Value column (right aligned within its area; if gauge absent, it can extend into the gauge area)
   canvas.setFont(L.VALUE_FONT);
   canvas.setTextColor(COLOR_FG, COLOR_BG);
   canvas.setTextDatum(textdatum_t::top_right);
 
-  int maxW = showGauge ? L.VALUE_COL_W : (L.VALUE_COL_W + L.GAUGE_W + L.GAP_COL);
-  int valueRightX = W - RIGHT_PAD - (showGauge ? (L.GAUGE_W + L.GAP_COL) : 0);
+  int valueLeftX = LEFT_PAD + C.labelW + C.gap;
+  int valueAreaW = C.valueW + (showGauge ? 0 : (C.gap + C.gaugeW));
+  int valueRightX = valueLeftX + valueAreaW;
 
   String raw = sensors[sensorIdx].value.length() ? sensors[sensorIdx].value : "-";
-  String disp = formatValueForColumn2(raw, maxW);
+  String disp = formatValueForColumn2(raw, valueAreaW - 2);
   canvas.drawString(disp, valueRightX, y);
 
+  // Gauge (if enabled) occupies the 5/10 area
   if (showGauge) {
-    int gx = W - RIGHT_PAD - L.GAUGE_W;
+    int gx = LEFT_PAD + C.labelW + C.gap + C.valueW + C.gap;
     int gy = y + (L.LINE_H - L.GAUGE_H) / 2;
-    if (showBinary) drawBinaryGauge(gx, gy, L.GAUGE_W, L.GAUGE_H, binaryIsPositive(sensorIdx));
-    else drawGaugeBar(gx, gy, L.GAUGE_W, L.GAUGE_H, gaugePercent(sensorIdx, sensors[sensorIdx].value.toFloat()));
+    int gw = C.gaugeW;
+    if (showBinary) drawBinaryGauge(gx, gy, gw, L.GAUGE_H, binaryIsPositive(sensorIdx));
+    else drawGaugeBar(gx, gy, gw, L.GAUGE_H, gaugePercent(sensorIdx, sensors[sensorIdx].value.toFloat()));
   }
+
+  // Row separator: unchanged
+  (void)W;
 }
 
 void drawTodayCard(int yStart) {
