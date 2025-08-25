@@ -5,7 +5,7 @@ Wi‑Fi と MQTT を使って複数トピックの JSON を受信・可視化し
 
 > 初学者向けに、用語はできるだけ平易に説明しています。  
 > GitHub への push 前に、`config.h` に **Wi‑Fi パスワード等の秘密情報を直書きしない**運用（例: `config_local.h` を `.gitignore` で除外）をご検討ください。
-
+<img width="905" height="909" alt="rrr" src="https://github.com/user-attachments/assets/a12ffa93-5afc-4ea6-b41e-4391e965c5cb" />
 ---
 
 ## 主な特徴
