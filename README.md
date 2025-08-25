@@ -2,115 +2,113 @@
 
 👉 [日本語版はこちら](./README-ja.md)
 
-This project turns **M5Stack M5PaperS3 (ESP32‑S3 + e‑paper)** into a **single‑page, always‑on MQTT dashboard** for home/room environment data.  
-It subscribes to multiple MQTT topics that deliver JSON payloads and **renders everything on one page**—no paging or scrolling.  
-The UI and runtime are tuned for **low power** and **24/7 stability** on an e‑paper display.
+This sketch turns the **M5Stack M5PaperS3 (ESP32‑S3 + E‑paper)** into a **single‑screen, always‑on home sensor dashboard**.  
+It subscribes to multiple MQTT topics carrying JSON payloads and renders them **without any paging**, tuned for **low power and 24/7 stability** on E‑paper.
 
-> **Security tip:** Do **not** hard‑code secrets (Wi‑Fi/MQTT passwords) in a file that will be committed.  
-> Consider splitting secrets to `config_local.h` and adding it to your `.gitignore`.
+<img width="905" height="909" alt="screenshot" src="https://github.com/user-attachments/assets/a12ffa93-5afc-4ea6-b41e-4391e965c5cb" />
 
-<img width="905" height="909" alt="rrr" src="https://github.com/user-attachments/assets/a12ffa93-5afc-4ea6-b41e-4391e965c5cb" />
 ---
 
-## Highlights
+## Features
 
-- **One‑page layout** – All information fits on a single screen, no page navigation.
-- **Auto density** – Picks *Normal / Compact / Ultra* based on display height to keep everything readable.
-- **Gauges** – Numeric bars for temperature/humidity/CO₂, binary pattern bars for Rain/Cable.
-- **Overflow handling** – If a value overflows the column, numeric‑like strings are rounded to **two decimals**; long text is ellipsized.
-- **“Today at a glance”** – Drawn only if vertical space remains: THI, CO₂ (latest + 1‑hour average), outdoor Hi/Lo, max humidity, pressure.
-- **24/7 hardening**
-  - Wi‑Fi/MQTT auto‑reconnect with exponential backoff
-  - Tuned keep‑alive / socket timeout / receive buffer
-  - Optional ESP32 watchdog + periodic health checks
-  - NTP time sync and periodic re‑sync
+- **One‑page layout**: no scrolling, no page switching.
+- **Auto density**: chooses *Normal / Compact / Ultra* based on available vertical space.
+- **Gauges**: intuitive bars for temperature / humidity / CO₂; patterned bars for binary states like rain/cable.
+- **Overflow handling**: when a value doesn’t fit, numeric‑looking values are rounded to 2 decimals; long strings are ellipsized.
+- **“Today at a glance” card**: when space permits, shows THI/CO₂/outdoor Hi/Lo, max humidity, pressure, etc.
+- **24/7 hardening**:
+  - Auto reconnect for Wi‑Fi/MQTT (exponential backoff)
+  - Tuned keep‑alive, socket timeouts, receive buffers
+  - Optional watchdog + periodic health checks
+  - NTP time sync + periodic resync
   - Low‑heap detection with safe restart
-- **Interaction** – Tap the very **top of the screen** to refresh on demand.
-- **Rendering** – Black on white, 1‑bit, optimized for e‑paper readability and power.
+- **Interaction**: tap the very top (header area) to **manually refresh**.
+- **Rendering**: black on white (1‑bit) for crisp readability and low power.
 
 ---
 
 ## Hardware & Software
 
 - Device: **M5PaperS3**
-- Network: Local MQTT broker (e.g., Mosquitto on a Raspberry Pi)
-- Development environments (examples)
+- Network: a home **MQTT broker** (e.g., Mosquitto on Raspberry Pi)
+- Development (examples)
   - **Arduino IDE 2.x**
-    - ESP32 boards by Espressif (make sure **PSRAM is enabled**)
+    - Install **ESP32** from Espressif via Boards Manager
+    - **Enable PSRAM** (required)
     - Libraries: `M5Unified`, `PubSubClient`, `ArduinoJson`
   - **PlatformIO** (optional)
     - `platform = espressif32`
-    - Select an **ESP32‑S3 board with PSRAM enabled**
-    - Dependencies: `M5Unified`, `PubSubClient`, `ArduinoJson`
+    - Select an **ESP32‑S3** board **with PSRAM**
+    - Depends on: `M5Unified`, `PubSubClient`, `ArduinoJson`
 
-> The exact board name / PlatformIO `board` id may vary. Ensure you pick a config that matches **M5PaperS3 with PSRAM**.
+> Board names and PlatformIO `board` IDs vary by environment. Make sure it’s M5PaperS3 (ESP32‑S3) **with PSRAM enabled**.
 
 ---
 
-## Project Layout (example)
+## Directory Layout (example)
 
 ```
 /<your-project>/
-├─ M5PaperS3_MQTT_Dashboard.ino   # main sketch
-├─ config.h                        # settings (Wi‑Fi / MQTT / topics / UI / gauges)
-└─ (optional) config_local.h       # secrets split-out (add to .gitignore)
+├─ M5PaperS3_MQTT_Dashboard.ino   # Main sketch
+├─ config.h                        # Settings (Wi‑Fi/MQTT/topics/UI/gauges/etc.)
+└─ (optional) config_local.h       # For secrets if you prefer (add to .gitignore)
 ```
 
 ---
 
-## Setup (Arduino IDE)
+## Setup (Arduino IDE example)
 
-1. Install ESP32 board definitions and make sure you can build for **M5PaperS3 / ESP32‑S3 with PSRAM enabled**.
-2. Install libraries **M5Unified / PubSubClient / ArduinoJson**.
-3. Edit `config.h`:
+1. Install the **ESP32** board package and ensure you can build for **M5PaperS3 / ESP32‑S3 with PSRAM**.
+2. Install **M5Unified / PubSubClient / ArduinoJson** via the Library Manager.
+3. Open `config.h` and set:
    - Wi‑Fi: `WIFI_SSID`, `WIFI_PASS`
    - MQTT: `MQTT_HOST`, `MQTT_PORT`, `MQTT_USER`, `MQTT_PASS`, `MQTT_CLIENT_ID`
-   - Topics: `TOPIC_*` (see payload specs below)
-   - UI: `DEVICE_TITLE`, `REFRESH_SEC` (periodic redraw seconds), etc.
+   - Topics: `TOPIC_*` (match payload formats below)
+   - UI: `DEVICE_TITLE`, `REFRESH_SEC` (periodic redraw interval in seconds), etc.
    - NTP: `ENABLE_NTP`, `TZ_INFO`, `NTP_SERVER*`
    - 24/7: `ENABLE_WATCHDOG`, `WATCHDOG_TIMEOUT_SEC`, `LOW_HEAP_RESTART_KB`, etc.
    - Gauges: `GAUGE_*_ENABLE`, `*_MIN`, `*_MAX` (per sensor)
-4. Connect M5PaperS3, select the serial port, and **upload**.
-5. On first boot you should see **Booting... → Connecting Wi‑Fi**. Once connected, the dashboard will render.
+4. Connect the M5PaperS3, choose the **serial port**, and **upload**.
+5. On first boot you should see **Booting... → Connecting Wi‑Fi**. After connecting, the dashboard is drawn.
 
 ---
 
-## Screen Layout & Interaction
+## UI & Interaction
 
-- **Header** – Title centered; right side shows `WiFi:OK/NG  MQTT:OK/NG  IP`.  
-  Tap the **very top area** to force an immediate refresh.
-- **Body** – Sections with headers and rows:
-  - Example sections: `RAIN`, `PICO W`, `OUTSIDE`, `SYSTEM`, `Study`
-  - Each row: **label (left) / value (right) / gauge (far right, optional)**
-- **Today at a glance** – Appears only if vertical space is available.
-- **Footer** – Two centered lines: a top **hint** (`TapTop:Refresh`) and the **last MQTT update** timestamp.
+- **Header**: title centered; right side shows `WiFi:OK/NG  MQTT:OK/NG  IP`.  
+  Tap the **very top** to trigger an immediate refresh.
+- **Body**: organized into sections (heading + rows).
+  - Examples: `RAIN`, `PICO W`, `OUTSIDE`, `SYSTEM`, `Study`
+  - Each row shows **label (left) / value (right) / optional gauge (far right)**.
+- **Today at a glance**: appears only if there is spare vertical space.
+- **Footer**: first line shows a hint `TapTop:Refresh`; second line shows the **last MQTT update time**.
 
 **Gauge behavior**
-- Numeric bars: normalize **current value** in `[MIN..MAX]` to **0..100%**.
-- Binary bars (Rain/Cable): patterned fill for **positive** state (≈70% fill).
-- Value formatting: only when needed—round numeric‑like strings to **two decimals** or ellipsize long text.
+- Numeric gauges: values are normalized from `MIN..MAX` to 0–100% and drawn as bars.
+- Binary gauges (rain/cable): only the **positive** state gets a pattern fill (~70%) to stand out.
+- Value formatting: only when a value would overflow; numerics round to **2 decimals**; long strings get `...`.
 
 ---
 
 ## MQTT Topics & Payloads (examples)
 
-> Topic names are **configurable** in `config.h`. Examples below match the default setup.
+> **Topic names are configurable** in `config.h`. The following are defaults used by this sketch.
 
 ### 1) Rain sensor — `TOPIC_RAIN` (e.g., `home/weather/rain_sensor`)
 
 ```json
 {
-  "rain": true,           // raining? true/false
-  "current": 123.4,       // ADC now
-  "baseline": 117.8,      // ADC baseline
-  "uptime": 12.5,         // hours
-  "cable_ok": true        // cable OK
+  "rain": true,
+  "current": 123.4,
+  "baseline": 117.8,
+  "uptime": 12.5,
+  "cable_ok": true
 }
 ```
 
-- Rows: `雨`, `雨 現在値(ADC)`, `雨 ベースライン`, `雨 稼働時間(h)`, `雨 ケーブル`
-- Mapped to **ON/OFF** (rain) and **OK/NG** (cable).  
-- Optional gauges: enable `GAUGE_RAIN_*`.
+- Rendered as: `Rain / Rain Current(ADC) / Rain Baseline / Rain Uptime(h) / Rain Cable`
+- `rain` → **ON/OFF**, `cable_ok` → **OK/NG**.
+- Optional gauges: enable `GAUGE_RAIN_*` with `ENABLE=1`.
 
 ---
 
@@ -125,9 +123,9 @@ The UI and runtime are tuned for **low power** and **24/7 stability** on an e‑
 }
 ```
 
-- Rows: `Pico 温度(°C)`, `Pico 湿度(%)`, `リビング CO2(ppm)`, `Pico THI`
-- CO₂ values are pushed into a fixed‑size ring buffer (up to 120 samples) to compute the **1‑hour average** in the card.
-- THI labeled as **COOL / COMFY / WARM / HOT** using `THI_*_MAX` thresholds.
+- Renders: `Pico Temp(°C) / Pico Humidity(%) / Living CO2(ppm) / Pico THI`
+- CO₂ samples are stored in an internal ring buffer (max ~120). The **last 1‑hour average** is shown on the card.
+- THI buckets into **COOL / COMFY / WARM / HOT** via thresholds (`THI_*_MAX`).
 
 ---
 
@@ -135,24 +133,24 @@ The UI and runtime are tuned for **low power** and **24/7 stability** on an e‑
 
 ```json
 {
-  "temperature": 30.1,    // °C
-  "humidity": 70.2,       // %
-  "pressure": 1006.4      // hPa
+  "temperature": 30.1,
+  "humidity": 70.2,
+  "pressure": 1006.4
 }
 ```
 
-- Rows: `外 温度(°C)`, `外 湿度(%)`, `外 気圧(hPa)`
-- Updates **daily stats** (Hi/Lo temperature and max humidity) shown in the card.
+- Renders: `Out Temp(°C) / Out Humidity(%) / Out Pressure(hPa)`
+- Daily stats (today’s Hi/Lo and max humidity) are updated and shown on the card.
 
 ---
 
 ### 4) Raspberry Pi CPU temperature — `TOPIC_RPI_TEMP` (e.g., `raspberry/temperature`)
 
-- Accepts **free‑form text**. A numeric parser extracts a temperature value (examples):
+- Extracts the number from a **free‑form string**, e.g.:
   - `"54.1°C"`
   - `"temp=53.8C"`
   - `"CPU 55.2 C"`
-- Row: `RPi5 CPU(°C)`
+- Renders: `RPi5 CPU(°C)`
 
 ---
 
@@ -162,21 +160,21 @@ The UI and runtime are tuned for **low power** and **24/7 stability** on an e‑
 { "temperature": 45.2 }
 ```
 
-- Row: `QZSS CPU(°C)`
+- Renders: `QZSS CPU(°C)`
 
 ---
 
-### 6) Study (M5StickC etc.) — `TOPIC_M5STICKC` (e.g., `m5stickc_co2/co2_data`)
+### 6) Study room (M5StickC, etc.) — `TOPIC_M5STICKC` (e.g., `m5stickc_co2/co2_data`)
 
 ```json
 {
-  "co2": 950,             // ppm
-  "temp": 27.1,           // °C
-  "hum": 45.8             // %
+  "co2": 950,
+  "temp": 27.1,
+  "hum": 45.8
 }
 ```
 
-- Rows: `書斎 CO2(ppm)`, `書斎 温度(°C)`, `書斎 湿度(%)`
+- Renders: `Study CO2(ppm) / Study Temp(°C) / Study Humidity(%)`
 
 ---
 
@@ -186,13 +184,11 @@ The UI and runtime are tuned for **low power** and **24/7 stability** on an e‑
 { "client_count": 3 }
 ```
 
-- Row: `M5Capsule Clients` (the visibility can be toggled in the rows table)
+- Renders: `M5Capsule Clients` (visibility can be toggled in the rows table).
 
 ---
 
-## `config.h` – Key Settings
-
-> The actual file contains many definitions; this is a map of the most important ones.
+## Key `config.h` Settings (guide)
 
 - **Network / MQTT**
   - `WIFI_SSID`, `WIFI_PASS`
@@ -200,37 +196,37 @@ The UI and runtime are tuned for **low power** and **24/7 stability** on an e‑
 - **Topics**
   - `TOPIC_RAIN`, `TOPIC_PICO`, `TOPIC_ENV4`, `TOPIC_RPI_TEMP`, `TOPIC_QZSS_TEMP`, `TOPIC_M5STICKC`, `TOPIC_M5CAPSULE`
 - **UI / Time / Refresh**
-  - `DEVICE_TITLE` – header title
-  - `REFRESH_SEC` – periodic redraw interval (seconds)
+  - `DEVICE_TITLE` (centered header title)
+  - `REFRESH_SEC` (periodic redraw, seconds)
   - `ENABLE_NTP`, `TZ_INFO`, `NTP_SERVER1..3`
 - **Gauge ranges (and enable flags)**
-  - e.g., `GAUGE_PICO_TEMP_ENABLE`, `GAUGE_PICO_TEMP_MIN/MAX`, etc.
+  - e.g., `GAUGE_PICO_TEMP_ENABLE`, `GAUGE_PICO_TEMP_MIN/MAX` per sensor
 - **THI thresholds**
   - `THI_COOL_MAX`, `THI_COMFY_MAX`, `THI_WARM_MAX`
 - **24/7 operation**
   - `ENABLE_WATCHDOG`, `WATCHDOG_TIMEOUT_SEC`
-  - `LOW_HEAP_RESTART_KB` – restart when free heap drops under the threshold
-  - `HEALTH_CHECK_INTERVAL_MS` – periodic health checks
-  - `WIFI_MAX_BACKOFF_MS`, `MQTT_MAX_BACKOFF_MS` – reconnect backoff caps
+  - `LOW_HEAP_RESTART_KB` (restart when heap goes below threshold)
+  - `HEALTH_CHECK_INTERVAL_MS`
+  - `WIFI_MAX_BACKOFF_MS`, `MQTT_MAX_BACKOFF_MS`
 
 ---
 
 ## FAQ
 
-**Q. The screen is blank or never updates.**  
-A. Verify **PSRAM is enabled** in the board settings. The code waits for e‑paper refresh completion; power‑cycle or re‑flash if needed.
+**Q. The screen is blank / not updating.**  
+A. Ensure **PSRAM is enabled** in your build settings. The sketch waits for `M5.Display.display()` to finish. Power‑cycle or re‑flash if needed.
 
 **Q. Values never appear.**  
-A. Check that your broker address/port and **topic names** match `config.h`. Ensure your **JSON keys** match what the sketch expects.
+A. Verify the broker address/port and **topic names** match `config.h`. Ensure your **JSON keys** match what the sketch expects.
 
 **Q. The CO₂ 1‑hour average never shows.**  
 A. You need **multiple CO₂ updates within the last hour**; the ring buffer aggregates only recent samples.
 
 **Q. The timestamp shows `--`.**  
-A. Enable NTP (`ENABLE_NTP = 1`) and ensure the device can reach your NTP servers (internet access).
+A. Enable NTP (`ENABLE_NTP = 1`) and make sure the device can reach your NTP servers (internet access).
 
 **Q. The device reboots occasionally.**  
-A. That’s a **self‑protective restart** (low heap / watchdog). Tune `LOW_HEAP_RESTART_KB` and `WATCHDOG_*` to your environment.
+A. That’s a **self‑protective restart** (low heap / watchdog). Tune `LOW_HEAP_RESTART_KB` and `WATCHDOG_*` for your environment.
 
 ---
 
@@ -246,7 +242,7 @@ A. That’s a **self‑protective restart** (low heap / watchdog). Tune `LOW_HEA
 ## Contributing & License
 
 - Issues and PRs are welcome. Please include reproduction steps, logs, and environment details when filing bugs.
-- See the project **`LICENSE`** (e.g., MIT) for licensing details.
+- See the project **`LICENSE`** for licensing details.
 
 ---
 
@@ -260,21 +256,11 @@ A. That’s a **self‑protective restart** (low heap / watchdog). Tune `LOW_HEA
 
 ---
 
-## Screenshots (suggested)
-
-- Header (centered title; connection status on the right)
-- Body (labels left, values right, gauges when enabled)
-- Today at a glance (when space allows)
-- Footer (hint + last MQTT update)
-
-> Add real screenshots from your device to the README if helpful.
-
----
-
 ## Disclaimer
 
 This sketch is provided **as is**. In long‑term unattended deployments, behavior can be impacted by power quality, network reliability, and peripheral health. For critical environments, implement adequate monitoring and redundancy.
 
 ---
 
-**Happy hacking & stay readable on e‑paper!**
+**Happy hacking & stay readable on E‑paper!**
+
