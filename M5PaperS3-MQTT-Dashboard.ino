@@ -1,4 +1,4 @@
-/* M5PaperS3 MQTT Dashboard (ONE-PAGE layout, 24/7-hardened + centered title) - with 15min stale detection
+/* M5PaperS3 MQTT Dashboard (ONE-PAGE layout, 24/7-hardened + centered title) - with 15min stale detection + per-sensor exclude
     - No paging: always fits into a single page
     - Density modes: Normal → Compact → Ultra (auto pick to fit)
     - Hide empty gauges and expand value column
@@ -16,6 +16,7 @@
         * Per-sensor stale detection: if the value has not CHANGED for >= STALE_MINUTES (default 15),
           the value column shows "ERROR", and the gauge area prints the timestamp that is
           "15 minutes before ERROR" (i.e., the last change time).
+        * Per-sensor EXCLUDE option: define STALE_EXCLUDE_LIST in config.h to skip stale detection for specific sensors.
 */
 
 #include <M5Unified.h>
@@ -194,6 +195,22 @@ enum : uint8_t {
 SensorItem sensors[SENSOR_COUNT] = {
   { "雨", "-" }, { "雨 現在値(ADC)", "-" }, { "雨 ベースライン", "-" }, { "雨 稼働時間(h)", "-" }, { "雨 ケーブル", "-" }, { "Pico 温度(°C)", "-" }, { "Pico 湿度(%)", "-" }, { "リビング CO2(ppm)", "-" }, { "Pico THI", "-" }, { "外 温度(°C)", "-" }, { "外 湿度(%)", "-" }, { "外 気圧(hPa)", "-" }, { "RPi5 CPU(°C)", "-" }, { "QZSS CPU(°C)", "-" }, { "書斎 CO2(ppm)", "-" }, { "書斎 温度(°C)", "-" }, { "書斎 湿度(%)", "-" }, { "M5Capsule Clients", "-" }
 };
+
+// ───────── Stale detection: exclude list (configurable) ─────────
+// config.h で STALE_EXCLUDE_LIST を定義すれば、ここに展開されます。
+// 例: #define STALE_EXCLUDE_LIST { IDX_RAIN_STATE, IDX_RAIN_CABLE, IDX_STUDY_CO2 }
+// 何も除外しない場合: #define STALE_EXCLUDE_LIST {}
+#ifndef STALE_EXCLUDE_LIST
+#define STALE_EXCLUDE_LIST \
+  { IDX_RAIN_STATE, IDX_RAIN_CABLE }  // デフォルト：バイナリ系2項目を除外
+#endif
+static const uint8_t kStaleExclude[] = STALE_EXCLUDE_LIST;
+static inline bool isStaleExcluded(uint8_t idx) {
+  for (size_t i = 0; i < sizeof(kStaleExclude) / sizeof(kStaleExclude[0]); ++i) {
+    if (kStaleExclude[i] == idx) return true;
+  }
+  return false;
+}
 
 // Stale detection state
 String g_lastValue[SENSOR_COUNT];
@@ -489,6 +506,7 @@ void pushSensorValue(uint8_t idx, const String& v) {
 // returns: true if stale; sets outErrorShown (when ERROR was first shown) and outInfoTime (=15min前 = lastChangeTs)
 bool sensorIsStale(uint8_t idx, time_t now, time_t& outErrorShown, time_t& outInfoTime) {
   if (idx >= SENSOR_COUNT) return false;
+  if (isStaleExcluded(idx)) return false;      // 除外センサーは常に非エラー
   if (g_lastChangeTs[idx] == 0) return false;  // まだ一度も値を受け取っていない
   long sinceChange = (long)(now - g_lastChangeTs[idx]);
   if (sinceChange >= STALE_SEC) {

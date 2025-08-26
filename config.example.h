@@ -107,3 +107,5 @@
 
 
 #define STALE_MINUTES 15   // 例：15分
+// 例1）バイナリ系のみ除外（デフォルトと同じ）
+#define STALE_EXCLUDE_LIST { IDX_RAIN_STATE, IDX_RAIN_CABLE }
