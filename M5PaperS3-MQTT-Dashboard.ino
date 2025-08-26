@@ -1,4 +1,4 @@
-/* M5PaperS3 MQTT Dashboard (ONE-PAGE layout, 24/7-hardened + centered title)
+/* M5PaperS3 MQTT Dashboard (ONE-PAGE layout, 24/7-hardened + centered title) - with 15min stale detection
     - No paging: always fits into a single page
     - Density modes: Normal → Compact → Ultra (auto pick to fit)
     - Hide empty gauges and expand value column
@@ -12,6 +12,10 @@
         * MQTT reconnect with backoff, tuned keepalive/socket timeout/buffer
         * Optional watchdog (ESP32 WDT) + periodic health checks
         * Periodic NTP refresh
+    - NEW:
+        * Per-sensor stale detection: if the value has not CHANGED for >= STALE_MINUTES (default 15),
+          the value column shows "ERROR", and the gauge area prints the timestamp that is
+          "15 minutes before ERROR" (i.e., the last change time).
 */
 
 #include <M5Unified.h>
@@ -75,6 +79,12 @@ static ColLayout computeCols();  // 関数の前方宣言を追加
 #ifndef NTP_REFRESH_INTERVAL_MS
 #define NTP_REFRESH_INTERVAL_MS 6UL * 60UL * 60UL * 1000UL
 #endif
+
+// ───────── Stale detection config (override in config.h) ─────────
+#ifndef STALE_MINUTES
+#define STALE_MINUTES 15
+#endif
+static const long STALE_SEC = (long)STALE_MINUTES * 60L;
 
 // ───────── Drawing constants ─────────
 M5Canvas canvas(&M5.Display);
@@ -184,6 +194,12 @@ enum : uint8_t {
 SensorItem sensors[SENSOR_COUNT] = {
   { "雨", "-" }, { "雨 現在値(ADC)", "-" }, { "雨 ベースライン", "-" }, { "雨 稼働時間(h)", "-" }, { "雨 ケーブル", "-" }, { "Pico 温度(°C)", "-" }, { "Pico 湿度(%)", "-" }, { "リビング CO2(ppm)", "-" }, { "Pico THI", "-" }, { "外 温度(°C)", "-" }, { "外 湿度(%)", "-" }, { "外 気圧(hPa)", "-" }, { "RPi5 CPU(°C)", "-" }, { "QZSS CPU(°C)", "-" }, { "書斎 CO2(ppm)", "-" }, { "書斎 温度(°C)", "-" }, { "書斎 湿度(%)", "-" }, { "M5Capsule Clients", "-" }
 };
+
+// Stale detection state
+String g_lastValue[SENSOR_COUNT];
+time_t g_lastChangeTs[SENSOR_COUNT];
+time_t g_lastUpdateTs[SENSOR_COUNT];
+time_t g_errorFirstShownTs[SENSOR_COUNT];
 
 // Section rows
 struct Row {
@@ -445,6 +461,50 @@ const char* thiLabel(float thi) {
   return "HOT";
 }
 
+// ───────── Stale detection helpers ─────────
+void initStaleArrays() {
+  for (int i = 0; i < SENSOR_COUNT; ++i) {
+    g_lastValue[i] = "";
+    g_lastChangeTs[i] = 0;
+    g_lastUpdateTs[i] = 0;
+    g_errorFirstShownTs[i] = 0;
+  }
+}
+
+void pushSensorValue(uint8_t idx, const String& v) {
+  if (idx >= SENSOR_COUNT) return;
+  time_t now = time(nullptr);
+  if (g_lastValue[idx].length() == 0) {
+    // 初回値
+    g_lastChangeTs[idx] = now;
+  } else if (v != g_lastValue[idx]) {
+    g_lastChangeTs[idx] = now;     // 値が変動したときに「変化時刻」を更新
+    g_errorFirstShownTs[idx] = 0;  // 以前のエラー状態を解除
+  }
+  g_lastValue[idx] = v;
+  g_lastUpdateTs[idx] = now;
+  sensors[idx].value = v;
+}
+
+// returns: true if stale; sets outErrorShown (when ERROR was first shown) and outInfoTime (=15min前 = lastChangeTs)
+bool sensorIsStale(uint8_t idx, time_t now, time_t& outErrorShown, time_t& outInfoTime) {
+  if (idx >= SENSOR_COUNT) return false;
+  if (g_lastChangeTs[idx] == 0) return false;  // まだ一度も値を受け取っていない
+  long sinceChange = (long)(now - g_lastChangeTs[idx]);
+  if (sinceChange >= STALE_SEC) {
+    if (g_errorFirstShownTs[idx] == 0) {
+      g_errorFirstShownTs[idx] = now;  // 初めてERROR表示とみなす
+    }
+    outErrorShown = g_errorFirstShownTs[idx];
+    outInfoTime = g_lastChangeTs[idx];  // = (ERROR表示時刻 - 15分)
+    return true;
+  } else {
+    // エラー解除
+    g_errorFirstShownTs[idx] = 0;
+    return false;
+  }
+}
+
 // ───────── Rendering helpers ─────────
 void drawGaugeBar(int x, int y, int w, int h, float percent) {
   canvas.drawRect(x, y, w, h, COLOR_FG);
@@ -597,23 +657,23 @@ void onMqttMessage(char* topic, byte* payload, uint16_t len) {
   if (t == TOPIC_RAIN) {
     StaticJsonDocument<512> d;
     if (!deserializeJson(d, js)) {
-      sensors[IDX_RAIN_STATE].value = (d["rain"] | false) ? "ON" : "OFF";
-      if (d.containsKey("current")) sensors[IDX_RAIN_CUR].value = String(d["current"].as<float>(), 1);
-      if (d.containsKey("baseline")) sensors[IDX_RAIN_BASE].value = String(d["baseline"].as<float>(), 1);
-      if (d.containsKey("uptime")) sensors[IDX_RAIN_UPTIME].value = String(d["uptime"].as<float>(), 2);
-      if (d.containsKey("cable_ok")) sensors[IDX_RAIN_CABLE].value = d["cable_ok"].as<bool>() ? "OK" : "NG";
+      pushSensorValue(IDX_RAIN_STATE, (d["rain"] | false) ? "ON" : "OFF");
+      if (d.containsKey("current")) pushSensorValue(IDX_RAIN_CUR, String(d["current"].as<float>(), 1));
+      if (d.containsKey("baseline")) pushSensorValue(IDX_RAIN_BASE, String(d["baseline"].as<float>(), 1));
+      if (d.containsKey("uptime")) pushSensorValue(IDX_RAIN_UPTIME, String(d["uptime"].as<float>(), 2));
+      if (d.containsKey("cable_ok")) pushSensorValue(IDX_RAIN_CABLE, d["cable_ok"].as<bool>() ? "OK" : "NG");
     }
   } else if (t == TOPIC_PICO) {
     StaticJsonDocument<512> d;
     if (!deserializeJson(d, js)) {
-      if (d.containsKey("temperature")) sensors[IDX_PICO_TEMP].value = String(d["temperature"].as<float>(), 2);
-      if (d.containsKey("humidity")) sensors[IDX_PICO_HUM].value = String(d["humidity"].as<float>(), 2);
+      if (d.containsKey("temperature")) pushSensorValue(IDX_PICO_TEMP, String(d["temperature"].as<float>(), 2));
+      if (d.containsKey("humidity")) pushSensorValue(IDX_PICO_HUM, String(d["humidity"].as<float>(), 2));
       if (d.containsKey("co2")) {
         int v = d["co2"].as<int>();
-        sensors[IDX_PICO_CO2].value = String(v);
+        pushSensorValue(IDX_PICO_CO2, String(v));
         co2Push(time(nullptr), (float)v);
       }
-      if (d.containsKey("thi")) sensors[IDX_PICO_THI].value = String(d["thi"].as<float>(), 1);
+      if (d.containsKey("thi")) pushSensorValue(IDX_PICO_THI, String(d["thi"].as<float>(), 1));
     }
   } else if (t == TOPIC_ENV4) {
     StaticJsonDocument<512> d;
@@ -622,36 +682,36 @@ void onMqttMessage(char* topic, byte* payload, uint16_t len) {
       float tv = 0, hv = 0;
       if (d.containsKey("temperature")) {
         tv = d["temperature"].as<float>();
-        sensors[IDX_OUT_TEMP].value = String(tv, 1);
+        pushSensorValue(IDX_OUT_TEMP, String(tv, 1));
         ht = true;
       }
       if (d.containsKey("humidity")) {
         hv = d["humidity"].as<float>();
-        sensors[IDX_OUT_HUM].value = String(hv, 2);
+        pushSensorValue(IDX_OUT_HUM, String(hv, 2));
         hh = true;
       }
-      if (d.containsKey("pressure")) { sensors[IDX_OUT_PRESS].value = String(d["pressure"].as<float>(), 2); }
+      if (d.containsKey("pressure")) { pushSensorValue(IDX_OUT_PRESS, String(d["pressure"].as<float>(), 2)); }
       if (ht || hh) dailyUpdate(tv, ht, hv, hh);
     }
   } else if (t == TOPIC_RPI_TEMP) {
     float v = parseTempFromText(js.c_str());
-    if (!isnan(v)) sensors[IDX_RPI_TEMP].value = String(v, 1);
+    if (!isnan(v)) pushSensorValue(IDX_RPI_TEMP, String(v, 1));
   } else if (t == TOPIC_QZSS_TEMP) {
     StaticJsonDocument<256> d;
     if (!deserializeJson(d, js)) {
-      if (d.containsKey("temperature")) sensors[IDX_QZSS_TEMP].value = String(d["temperature"].as<float>(), 1);
+      if (d.containsKey("temperature")) pushSensorValue(IDX_QZSS_TEMP, String(d["temperature"].as<float>(), 1));
     }
   } else if (t == TOPIC_M5STICKC) {
     StaticJsonDocument<512> d;
     if (!deserializeJson(d, js)) {
-      if (d.containsKey("co2")) sensors[IDX_STUDY_CO2].value = String(d["co2"].as<int>());
-      if (d.containsKey("temp")) sensors[IDX_STUDY_TEMP].value = String(d["temp"].as<float>(), 1);
-      if (d.containsKey("hum")) sensors[IDX_STUDY_HUM].value = String(d["hum"].as<float>(), 2);
+      if (d.containsKey("co2")) pushSensorValue(IDX_STUDY_CO2, String(d["co2"].as<int>()));
+      if (d.containsKey("temp")) pushSensorValue(IDX_STUDY_TEMP, String(d["temp"].as<float>(), 1));
+      if (d.containsKey("hum")) pushSensorValue(IDX_STUDY_HUM, String(d["hum"].as<float>(), 2));
     }
   } else if (t == TOPIC_M5CAPSULE) {
     StaticJsonDocument<256> d;
     if (!deserializeJson(d, js)) {
-      if (d.containsKey("client_count")) sensors[IDX_M5CAP_CLIENTS].value = String(d["client_count"].as<int>());
+      if (d.containsKey("client_count")) pushSensorValue(IDX_M5CAP_CLIENTS, String(d["client_count"].as<int>()));
     }
   }
 }
@@ -703,7 +763,12 @@ void drawRow(int sensorIdx, int y) {
   int valueAreaW = C.valueW + (showGauge ? 0 : (C.gap + C.gaugeW));
   int valueRightX = valueLeftX + valueAreaW;
 
+  // Stale detection for this row
+  time_t nowt = time(nullptr), errShownTs = 0, infoTs = 0;
+  bool isStale = sensorIsStale(sensorIdx, nowt, errShownTs, infoTs);
+
   String raw = sensors[sensorIdx].value.length() ? sensors[sensorIdx].value : "-";
+  if (isStale) raw = "ERROR";
   String disp = formatValueForColumn2(raw, valueAreaW - 2);
   canvas.drawString(disp, valueRightX, y);
 
@@ -714,6 +779,17 @@ void drawRow(int sensorIdx, int y) {
     int gw = C.gaugeW;
     if (showBinary) drawBinaryGauge(gx, gy, gw, L.GAUGE_H, binaryIsPositive(sensorIdx));
     else drawGaugeBar(gx, gy, gw, L.GAUGE_H, gaugePercent(sensorIdx, sensors[sensorIdx].value.toFloat()));
+
+    // When stale, overlay "15分前の日時" (= last change time) inside the gauge area
+    if (isStale) {
+      canvas.setFont(L.SMALL_FONT);
+      canvas.setTextColor(COLOR_DIM, COLOR_BG);
+      canvas.setTextDatum(textdatum_t::top_left);
+      String info = String("ERROR-15m: ") + formatDateTime(infoTs);  // infoTs = lastChangeTs
+      // simple shrink if too wide
+      while (info.length() && canvas.textWidth(info) > (gw - 4)) info.remove(info.length() - 1);
+      canvas.drawString(info, gx + 2, gy + 1);
+    }
   }
 
   // Row separator: unchanged
@@ -900,6 +976,9 @@ void setup() {
     g_max[i] = 1;
   }
   applyGaugeFromConfig();
+
+  // init stale detection arrays
+  initStaleArrays();
 
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onMqttMessage);

@@ -104,3 +104,6 @@
 #define THI_COOL_MAX 65
 #define THI_COMFY_MAX 72
 #define THI_WARM_MAX 78
+
+
+#define STALE_MINUTES 15   // 例：15分
