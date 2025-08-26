@@ -675,7 +675,8 @@ void onMqttMessage(char* topic, byte* payload, uint16_t len) {
   if (t == TOPIC_RAIN) {
     StaticJsonDocument<512> d;
     if (!deserializeJson(d, js)) {
-      pushSensorValue(IDX_RAIN_STATE, (d["rain"] | false) ? "ON" : "OFF");
+      // pushSensorValue(IDX_RAIN_STATE, (d["rain"] | false) ? "ON" : "OFF");
+      pushSensorValue(IDX_RAIN_STATE, (d["rain"] | false) ? "RAIN" : "DRY");
       if (d.containsKey("current")) pushSensorValue(IDX_RAIN_CUR, String(d["current"].as<float>(), 1));
       if (d.containsKey("baseline")) pushSensorValue(IDX_RAIN_BASE, String(d["baseline"].as<float>(), 1));
       if (d.containsKey("uptime")) pushSensorValue(IDX_RAIN_UPTIME, String(d["uptime"].as<float>(), 2));
