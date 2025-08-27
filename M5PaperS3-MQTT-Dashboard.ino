@@ -466,8 +466,12 @@ inline bool isBinaryIndex(uint8_t idx) {
 }
 bool binaryIsPositive(uint8_t idx) {
   const String& v = sensors[idx].value;
-  if (idx == IDX_RAIN_STATE) return v == "ON";
-  if (idx == IDX_RAIN_CABLE) return v == "OK";
+  // if (idx == IDX_RAIN_STATE) return v == "ON";
+  // #dt:2025-08-27 #tm:08:59
+  if (idx == IDX_RAIN_STATE) return v == "RAIN";
+  // if (idx == IDX_RAIN_CABLE) return v == "OK";
+  // #dt:2025-08-27 #tm:08:59
+  if (idx == IDX_RAIN_CABLE) return v == "NG";
   return false;
 }
 const char* thiLabel(float thi) {
