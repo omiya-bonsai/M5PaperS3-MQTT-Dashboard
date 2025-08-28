@@ -5,6 +5,8 @@
 
 > 🇬🇧 英語版は **[README.md](README.md)** をどうぞ。
 
+<img width="905" height="909" alt="rrr" src="https://github.com/user-attachments/assets/d478cb74-6ca1-474d-a486-fe95d3db3f84" />
+
 ---
 
 ## 特徴
