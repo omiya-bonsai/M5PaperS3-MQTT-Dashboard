@@ -12,20 +12,30 @@
 #endif
 #include "config.h"
 
-#ifndef ENABLE_SEASONAL_GAUGES
-#define ENABLE_SEASONAL_GAUGES 1
-#endif
+
+// 下も含めてコメントアウトをしないと
+// ダメっぽい
+// #dt:2025-08-28 #tm:16:02
+// #ifndef ENABLE_SEASONAL_GAUGES
+// #define ENABLE_SEASONAL_GAUGES 1
+// #endif
+
+// config.h で定義をしているからコメントアウト
+// #dt:2025-08-28 #tm:15:33
+// config.h の設定を読めていないようなので、
+// ここで直接、四季の始まりの月日を指定する
+// #dt:2025-08-28 #tm:15:38
 #ifndef SEASON_SPRING_START_MMDD
-#define SEASON_SPRING_START_MMDD 204
+#define SEASON_SPRING_START_MMDD 304
 #endif
 #ifndef SEASON_SUMMER_START_MMDD
 #define SEASON_SUMMER_START_MMDD 505
 #endif
 #ifndef SEASON_AUTUMN_START_MMDD
-#define SEASON_AUTUMN_START_MMDD 807
+#define SEASON_AUTUMN_START_MMDD 1007
 #endif
 #ifndef SEASON_WINTER_START_MMDD
-#define SEASON_WINTER_START_MMDD 1107
+#define SEASON_WINTER_START_MMDD 1217
 #endif
 
 enum Season : uint8_t { SEASON_SPRING,
@@ -34,10 +44,10 @@ enum Season : uint8_t { SEASON_SPRING,
                         SEASON_WINTER };
 static inline const char* seasonLabelJP(Season s) {
   switch (s) {
-    case SEASON_SPRING: return "春";
-    case SEASON_SUMMER: return "夏";
-    case SEASON_AUTUMN: return "秋";
-    default: return "冬";
+    case SEASON_SPRING: return "Spring";
+    case SEASON_SUMMER: return "Summer";
+    case SEASON_AUTUMN: return "Autumn";
+    default: return "Winter";
   }
 }
 static Season seasonFromLocalDate() {
@@ -47,9 +57,9 @@ static Season seasonFromLocalDate() {
   int mm = tmv.tm_mon + 1;
   int dd = tmv.tm_mday;
   int mmdd = mm * 100 + dd;
-  if (mmdd >= SEASON_WINTER_START_MMDD || mmdd <= 203) return SEASON_WINTER;
-  if (mmdd >= SEASON_SPRING_START_MMDD && mmdd <= 504) return SEASON_SPRING;
-  if (mmdd >= SEASON_SUMMER_START_MMDD && mmdd <= 806) return SEASON_SUMMER;
+  if (mmdd >= SEASON_WINTER_START_MMDD || mmdd <= 304) return SEASON_WINTER;
+  if (mmdd >= SEASON_SPRING_START_MMDD && mmdd <= 505) return SEASON_SPRING;
+  if (mmdd >= SEASON_SUMMER_START_MMDD && mmdd <= 1007) return SEASON_SUMMER;
   return SEASON_AUTUMN;
 }
 static Season g_currentSeason = SEASON_SPRING;
