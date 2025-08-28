@@ -1,3 +1,37 @@
+// /*
+//  * M5PaperS3 MQTT Dashboard — リーダブル版（学習用にコメントを大幅追加）
+//  * ------------------------------------------------------------------
+//  * このスケッチは、MQTTで受け取った各種センサー値をM5PaperS3の電子ペーパーに
+//  * ダッシュボードとして描画します。NTPで時刻同期し、値の更新が止まった場合の
+//  * 監視（STALE検出）、季節ごとのゲージ範囲（任意）、ウォッチドッグによるハング
+//  * 防止などを備えています。
+//  *
+//  * ▼最初にやること
+//  *   1) 同梱の config.example.readable.h を config.h にリネームして、Wi‑Fiや
+//  *      MQTTの設定を自分の環境に合わせて書き換えます（SSID/パスワード等）。
+//  *   2) ボードマネージャ＆ライブラリ
+//  *        - M5Unified 0.2.x
+//  *        - M5GFX     0.2.x
+//  *        - PubSubClient
+//  *        - ArduinoJson 7.x
+//  *   3) ビルド＆書き込み後、MQTTブローカーに接続できれば各ゲージが自動で更新されます。
+//  *
+//  * ▼ファイル構成（ざっくりの読み順）
+//  *   - #include と 定数/型定義：必要なライブラリと全体設定
+//  *   - ユーティリティ関数群：文字列整形・値監視・描画補助など
+//  *   - MQTT関連：接続・再接続・購読・受信ハンドラ
+//  *   - 描画関連：ヘッダー/行/カード/フッター/全体描画
+//  *   - setup()/loop()：初期化とメインループ
+//  *
+//  * ▼注意（公開リポジトリ）
+//  *   - config.h 内のSSID/パスワードなどの秘密情報は、必ずダミーに置き換えた
+//  *     config.example.h を公開し、手元では config.h を使う運用にしてください。
+//  *
+//  * このコメントブロック以下に、各関数へ「役割とポイント」を簡潔に書いた
+//  * ドキュメンテーションコメントを自動付与しています。* 関数名や処理内容から推測した説明なので、必要に応じて微調整してください。
+//  * /
+
+
 #include <M5Unified.h>
 #include <M5GFX.h>
 #include <WiFi.h>
@@ -38,11 +72,19 @@
 #define SEASON_WINTER_START_MMDD 1217
 #endif
 
-enum Season : uint8_t { SEASON_SPRING,
-                        SEASON_SUMMER,
-                        SEASON_AUTUMN,
-                        SEASON_WINTER };
+  enum Season : uint8_t { SEASON_SPRING,
+                          SEASON_SUMMER,
+                          SEASON_AUTUMN,
+                          SEASON_WINTER };
+/**
+ * @brief 季節の列挙値から、人間向けラベル（英語表記）を返します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 static inline const char* seasonLabelJP(Season s) {
+  /**
+ * @brief switch の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   switch (s) {
     case SEASON_SPRING: return "Spring";
     case SEASON_SUMMER: return "Summer";
@@ -50,6 +92,10 @@ static inline const char* seasonLabelJP(Season s) {
     default: return "Winter";
   }
 }
+/**
+ * @brief ローカル日付（mmdd）から四季のどれかを推定します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 static Season seasonFromLocalDate() {
   time_t now = time(nullptr);
   struct tm tmv;
@@ -118,6 +164,10 @@ static constexpr int RIGHT_PAD = 16;
 static constexpr int COL_LABEL_RATIO = 30;
 static constexpr int COL_VALUE_RATIO = 15;
 static constexpr int COL_GAUGE_RATIO = 55;
+/**
+ * @brief uint32値の加算でオーバーフローしないよう上限に丸めます。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 static inline uint32_t cap_u32(uint32_t v, uint32_t vmax) {
   return (v > vmax) ? vmax : v;
 }
@@ -150,6 +200,10 @@ struct ColLayout {
   int gap;
 };
 struct ColHelper {
+  /**
+ * @brief 汎用の計算・集計を行います（処理の詳細は関数本体参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   static ColLayout compute() {
     ColLayout C;
     int inner = M5.Display.width() - LEFT_PAD - RIGHT_PAD;
@@ -223,6 +277,10 @@ SensorItem sensors[SENSOR_COUNT] = {
   { IDX_RAIN_STATE, IDX_RAIN_CABLE }
 #endif
 static const uint8_t kStaleExclude[] = STALE_EXCLUDE_LIST;
+/**
+ * @brief 無変動監視から除外すべきセンサーかを判定します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 static inline bool isStaleExcluded(uint8_t idx) {
   for (size_t i = 0; i < sizeof(kStaleExclude) / sizeof(kStaleExclude[0]); ++i) {
     if (kStaleExclude[i] == idx) return true;
@@ -359,12 +417,20 @@ time_t g_lastMqttUpdate = 0;
 time_t co2_t[CO2_BUF_CAP];
 float co2_v[CO2_BUF_CAP];
 int co2_head = 0, co2_count = 0;
+/**
+ * @brief CO₂の新規サンプルをリングバッファへ蓄積します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 void co2Push(time_t ts, float v) {
   co2_t[co2_head] = ts;
   co2_v[co2_head] = v;
   co2_head = (co2_head + 1) % CO2_BUF_CAP;
   if (co2_count < CO2_BUF_CAP) co2_count++;
 }
+/**
+ * @brief 直近1時間のCO₂平均値を計算して返します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 float co2Avg1h() {
   time_t now = time(nullptr);
   if (now <= 0 || co2_count == 0) return NAN;
@@ -372,6 +438,10 @@ float co2Avg1h() {
   int n = 0;
   for (int i = 0; i < co2_count; ++i) {
     int idx = (co2_head - 1 - i + CO2_BUF_CAP) % CO2_BUF_CAP;
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (now - co2_t[idx] <= 3600) {
       sum += co2_v[idx];
       ++n;
@@ -384,57 +454,106 @@ struct DailyStats {
   bool inited = false;
   float outTempMin = 0, outTempMax = 0, outHumMax = 0;
 } daily;
+/**
+ * @brief 日付が変わったタイミングで日次リセットを行います。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 void dailyResetIfNeeded() {
   time_t now = time(nullptr);
   if (now <= 0) return;
   struct tm tmv;
   localtime_r(&now, &tmv);
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (tmv.tm_yday != daily.yday) {
     daily.yday = tmv.tm_yday;
     daily.inited = false;
   }
 }
+/**
+ * @brief 日次更新処理（統計や画面更新のきっかけ）を行います。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 void dailyUpdate(float tVal, bool hasT, float hVal, bool hasH) {
   dailyResetIfNeeded();
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (!daily.inited) {
     daily.inited = true;
     daily.outTempMin = hasT ? tVal : 0;
     daily.outTempMax = hasT ? tVal : 0;
     daily.outHumMax = hasH ? hVal : 0;
   }
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (hasT) {
     if (tVal < daily.outTempMin) daily.outTempMin = tVal;
     if (tVal > daily.outTempMax) daily.outTempMax = tVal;
   }
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (hasH) {
     if (hVal > daily.outHumMax) daily.outHumMax = hVal;
   }
 }
+
+/**
+ * @brief 0.0〜1.0の範囲に値をクランプします。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 
 static float clamp01(float x) {
   if (x < 0) return 0;
   if (x > 1) return 1;
   return x;
 }
+/**
+ * @brief ゲージ用の内部値を更新します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 void setGauge(uint8_t idx, bool en, float vmin, float vmax) {
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (idx < SENSOR_COUNT) {
     g_enable[idx] = en;
     g_min[idx] = vmin;
     g_max[idx] = vmax;
   }
 }
+/**
+ * @brief ゲージの現在値を0〜100%に正規化して返します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 float gaugePercent(uint8_t idx, float v) {
   if (!g_enable[idx]) return 0.0f;
   float a = g_min[idx], b = g_max[idx];
   if (b <= a) return 0.0f;
   return clamp01((v - a) / (b - a));
 }
+/**
+ * @brief テキストから温度らしき数値を抽出します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 float parseTempFromText(const char* s) {
   if (!s) return NAN;
   const char* p = s;
   while (*p && !((*p >= '0' && *p <= '9') || *p == '-')) ++p;
   return strtof(p, nullptr);
 }
+/**
+ * @brief 値が数値らしいか（数値/数値文字列か）を判定します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 bool isNumericLike(const String& s) {
   if (!s.length()) return false;
   for (size_t i = 0; i < s.length(); ++i) {
@@ -444,8 +563,16 @@ bool isNumericLike(const String& s) {
   }
   return true;
 }
+/**
+ * @brief 右側の値カラムに収まるように文字列を整形します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 String formatValueForColumn2(const String& s, int maxW) {
   if (canvas.textWidth(s) <= maxW) return s;
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (isNumericLike(s)) {
     double v = atof(s.c_str());
     return String(v, 2);
@@ -455,6 +582,10 @@ String formatValueForColumn2(const String& s, int maxW) {
   while (t.length() > 0 && canvas.textWidth(t) + ellw > maxW) t.remove(t.length() - 1);
   return t.length() ? t + ell : ell;
 }
+/**
+ * @brief 指定幅に収まらない文字列を中点省略などで短縮します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 String ellipsizeToWidth(const String& s, int maxW) {
   if (canvas.textWidth(s) <= maxW) return s;
   String t = s, ell = "...";
@@ -462,6 +593,10 @@ String ellipsizeToWidth(const String& s, int maxW) {
   while (t.length() > 0 && canvas.textWidth(t) + ellw > maxW) t.remove(t.length() - 1);
   return t.length() ? t + ell : ell;
 }
+/**
+ * @brief 時刻を YYYY-MM-DD HH:MM 形式の文字列に整形します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 String formatDateTime(time_t ts) {
   if (ts <= 0) return String("--");
   struct tm tmv;
@@ -470,15 +605,27 @@ String formatDateTime(time_t ts) {
   strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &tmv);
   return String(buf);
 }
+/**
+ * @brief バイナリ（ON/OFF系）のゲージかどうかを判定します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 inline bool isBinaryIndex(uint8_t idx) {
   return (idx == IDX_RAIN_STATE) || (idx == IDX_RAIN_CABLE);
 }
+/**
+ * @brief バイナリ値がポジティブ（良い状態）かどうかを判定します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 bool binaryIsPositive(uint8_t idx) {
   const String& v = sensors[idx].value;
   if (idx == IDX_RAIN_STATE) return v == "RAIN";
   if (idx == IDX_RAIN_CABLE) return v == "NG";
   return false;
 }
+/**
+ * @brief THI（不快指数）に応じてラベルを返します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 const char* thiLabel(float thi) {
   if (isnan(thi)) return "--";
   if (thi < THI_COOL_MAX) return "COOL";
@@ -486,6 +633,11 @@ const char* thiLabel(float thi) {
   if (thi < THI_WARM_MAX) return "WARM";
   return "HOT";
 }
+
+/**
+ * @brief 無変動監視（STALE）判定用の配列を初期化します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 
 void initStaleArrays() {
   for (int i = 0; i < SENSOR_COUNT; ++i) {
@@ -495,9 +647,17 @@ void initStaleArrays() {
     g_errorFirstShownTs[i] = 0;
   }
 }
+/**
+ * @brief 任意センサーの最新値を受け取り、内部状態を更新します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 void pushSensorValue(uint8_t idx, const String& v) {
   if (idx >= SENSOR_COUNT) return;
   time_t now = time(nullptr);
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (g_lastValue[idx].length() == 0) {
     g_lastChangeTs[idx] = now;
   } else if (v != g_lastValue[idx]) {
@@ -508,12 +668,24 @@ void pushSensorValue(uint8_t idx, const String& v) {
   g_lastUpdateTs[idx] = now;
   sensors[idx].value = v;
 }
+/**
+ * @brief 指定センサーが一定時間更新されていないかを判定します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 bool sensorIsStale(uint8_t idx, time_t now, time_t& outErrorShown, time_t& outInfoTime) {
   if (idx >= SENSOR_COUNT) return false;
   if (isStaleExcluded(idx)) return false;
   if (g_lastChangeTs[idx] == 0) return false;
   long sinceChange = (long)(now - g_lastChangeTs[idx]);
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (sinceChange >= STALE_SEC) {
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (g_errorFirstShownTs[idx] == 0) { g_errorFirstShownTs[idx] = now; }
     outErrorShown = g_errorFirstShownTs[idx];
     outInfoTime = g_lastChangeTs[idx];
@@ -524,6 +696,11 @@ bool sensorIsStale(uint8_t idx, time_t now, time_t& outErrorShown, time_t& outIn
   }
 }
 
+/**
+ * @brief 連続値のゲージ（棒）を描画します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
+
 void drawGaugeBar(int x, int y, int w, int h, float percent) {
   canvas.drawRect(x, y, w, h, COLOR_FG);
   int fillW = (int)(percent * (w - 2));
@@ -531,6 +708,10 @@ void drawGaugeBar(int x, int y, int w, int h, float percent) {
   for (int yy = y + 1; yy < y + h - 1; ++yy) canvas.drawFastHLine(x + 1, yy, fillW, COLOR_LINE);
   for (int sx = x + 1; sx < x + 1 + fillW; sx += 3) canvas.drawFastVLine(sx, y + 1, h - 2, COLOR_FG);
 }
+/**
+ * @brief バイナリゲージ（ON/OFF）を描画します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 void drawBinaryGauge(int x, int y, int w, int h, bool on) {
   canvas.drawRect(x, y, w, h, COLOR_FG);
   if (!on) return;
@@ -538,6 +719,10 @@ void drawBinaryGauge(int x, int y, int w, int h, bool on) {
     if (((yy - (y + 1)) % 4) != 3) canvas.drawFastHLine(x + 1, yy, w - 2, COLOR_FG);
   }
 }
+/**
+ * @brief 行ごとの高さと全体レイアウトを計算します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 int calcRowsHeight_ints(int lineH, int secExtra) {
   int h = 0;
   for (int i = 0; i < ROW_COUNT; ++i) {
@@ -546,6 +731,10 @@ int calcRowsHeight_ints(int lineH, int secExtra) {
   }
   return h;
 }
+/**
+ * @brief 表示密度（ノーマル/コンパクト/ウルトラ）等を決定します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 void chooseStyleAndGlance(bool& showGlance) {
   const int H = M5.Display.height();
   const LayoutStyle CAND[3] = { STYLE_NORMAL, STYLE_COMPACT, STYLE_ULTRA };
@@ -553,6 +742,10 @@ void chooseStyleAndGlance(bool& showGlance) {
     const LayoutStyle& S = CAND[s];
     int avail = H - S.HEADER_H - S.FOOTER_H - 12;
     int rowsH = calcRowsHeight_ints(S.LINE_H, S.SEC_EXTRA);
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (rowsH <= avail) {
       showGlance = (rowsH + 4 + S.GLANCE_H) <= avail;
       L = S;
@@ -562,6 +755,11 @@ void chooseStyleAndGlance(bool& showGlance) {
   L = STYLE_ULTRA;
   showGlance = false;
 }
+
+/**
+ * @brief ウォッチドッグタイマを設定します（ハング防止）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 
 void setupWatchdog() {
 #if ENABLE_WATCHDOG && defined(ARDUINO_ARCH_ESP32)
@@ -574,6 +772,11 @@ void setupWatchdog() {
   esp_task_wdt_add(NULL);
 #endif
 }
+
+/**
+ * @brief Wi‑Fi接続を（指数バックオフで）確立/維持します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 
 void ensureWiFi() {
   if (WiFi.status() == WL_CONNECTED) return;
@@ -588,6 +791,10 @@ void ensureWiFi() {
   delay(50);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   uint32_t st = millis();
+  /**
+ * @brief while の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   while (WiFi.status() != WL_CONNECTED && millis() - st < 8000) {
     delay(100);
     yield();
@@ -599,8 +806,17 @@ void ensureWiFi() {
   else wifiBackoff = cap_u32(wifiBackoff * 2, WIFI_MAX_BACKOFF_MS);
 }
 
+/**
+ * @brief NTPが有効なら時刻同期を初期化します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
+
 void initTimeIfEnabled() {
 #if ENABLE_NTP
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (lastNtpSync == 0 || millis() - lastNtpSync > NTP_REFRESH_INTERVAL_MS) {
     configTzTime(TZ_INFO, NTP_SERVER1, NTP_SERVER2, NTP_SERVER3);
     struct tm tmv;
@@ -613,11 +829,20 @@ void initTimeIfEnabled() {
 #endif
 }
 
+/**
+ * @brief MQTTクライアントの各種タイムアウト等を調整します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
+
 void mqttTune() {
   mqtt.setKeepAlive(20);
   mqtt.setSocketTimeout(5);
   mqtt.setBufferSize(1536);
 }
+/**
+ * @brief 利用する全トピックを購読します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 void mqttSubscribeAll() {
   mqtt.subscribe(TOPIC_RAIN);
   mqtt.subscribe(TOPIC_PICO);
@@ -627,17 +852,29 @@ void mqttSubscribeAll() {
   mqtt.subscribe(TOPIC_M5STICKC);
   mqtt.subscribe(TOPIC_M5CAPSULE);
 }
+/**
+ * @brief MQTTブローカーに再接続します（必要なら再購読）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 void mqttReconnect() {
   if (mqtt.connected()) return;
   uint32_t now = millis();
   if (now - mqttLastTry < mqttBackoff) return;
   mqttLastTry = now;
   ensureWiFi();
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (WiFi.status() != WL_CONNECTED) {
     mqttBackoff = cap_u32(mqttBackoff * 2, MQTT_MAX_BACKOFF_MS);
     return;
   }
   bool ok = strlen(MQTT_USER) ? mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS) : mqtt.connect(MQTT_CLIENT_ID);
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (ok) {
     mqttBackoff = 1000;
     mqttSubscribeAll();
@@ -646,13 +883,26 @@ void mqttReconnect() {
   }
 }
 
+/**
+ * @brief MQTTメッセージ受信時の処理（JSONパース→内部更新→再描画）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
+
 void onMqttMessage(char* topic, byte* payload, uint16_t len) {
   String t(topic), js;
   js.reserve(len + 1);
   for (uint16_t i = 0; i < len; ++i) js += (char)payload[i];
   g_lastMqttUpdate = time(nullptr);
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (t == TOPIC_RAIN) {
     StaticJsonDocument<512> d;
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (!deserializeJson(d, js)) {
       pushSensorValue(IDX_RAIN_STATE, (d["rain"] | false) ? String("RAIN") : String("DRY"));
       if (d["current"].is<float>()) pushSensorValue(IDX_RAIN_CUR, String(d["current"].as<float>(), 1));
@@ -662,9 +912,17 @@ void onMqttMessage(char* topic, byte* payload, uint16_t len) {
     }
   } else if (t == TOPIC_PICO) {
     StaticJsonDocument<512> d;
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (!deserializeJson(d, js)) {
       if (d["temperature"].is<float>()) pushSensorValue(IDX_PICO_TEMP, String(d["temperature"].as<float>(), 2));
       if (d["humidity"].is<float>()) pushSensorValue(IDX_PICO_HUM, String(d["humidity"].as<float>(), 2));
+      /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
       if (d["co2"].is<int>()) {
         int v = d["co2"].as<int>();
         pushSensorValue(IDX_PICO_CO2, String(v));
@@ -674,19 +932,35 @@ void onMqttMessage(char* topic, byte* payload, uint16_t len) {
     }
   } else if (t == TOPIC_ENV4) {
     StaticJsonDocument<512> d;
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (!deserializeJson(d, js)) {
       bool ht = false, hh = false;
       float tv = 0, hv = 0;
+      /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
       if (d["temperature"].is<float>()) {
         tv = d["temperature"].as<float>();
         pushSensorValue(IDX_OUT_TEMP, String(tv, 1));
         ht = true;
       }
+      /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
       if (d["humidity"].is<float>()) {
         hv = d["humidity"].as<float>();
         pushSensorValue(IDX_OUT_HUM, String(hv, 2));
         hh = true;
       }
+      /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
       if (d["pressure"].is<float>()) { pushSensorValue(IDX_OUT_PRESS, String(d["pressure"].as<float>(), 2)); }
       if (ht || hh) dailyUpdate(tv, ht, hv, hh);
     }
@@ -695,11 +969,19 @@ void onMqttMessage(char* topic, byte* payload, uint16_t len) {
     if (!isnan(v)) pushSensorValue(IDX_RPI_TEMP, String(v, 1));
   } else if (t == TOPIC_QZSS_TEMP) {
     StaticJsonDocument<256> d;
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (!deserializeJson(d, js)) {
       if (d["temperature"].is<float>()) pushSensorValue(IDX_QZSS_TEMP, String(d["temperature"].as<float>(), 1));
     }
   } else if (t == TOPIC_M5STICKC) {
     StaticJsonDocument<512> d;
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (!deserializeJson(d, js)) {
       if (d["co2"].is<int>()) pushSensorValue(IDX_STUDY_CO2, String(d["co2"].as<int>()));
       if (d["temp"].is<float>()) pushSensorValue(IDX_STUDY_TEMP, String(d["temp"].as<float>(), 1));
@@ -707,11 +989,20 @@ void onMqttMessage(char* topic, byte* payload, uint16_t len) {
     }
   } else if (t == TOPIC_M5CAPSULE) {
     StaticJsonDocument<256> d;
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (!deserializeJson(d, js)) {
       if (d["client_count"].is<int>()) pushSensorValue(IDX_M5CAP_CLIENTS, String(d["client_count"].as<int>()));
     }
   }
 }
+
+/**
+ * @brief タイトルや日時など、画面上部のヘッダーを描画します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 
 void drawHeader() {
   const int W = M5.Display.width();
@@ -730,6 +1021,11 @@ void drawHeader() {
   canvas.drawRightString(stat, W - RIGHT_PAD, 34);
   canvas.drawRightString(String("Season: ") + seasonLabelJP(g_currentSeason), W - RIGHT_PAD, 18);
 }
+
+/**
+ * @brief 各行（ラベル・ゲージ・値）を1つ描画します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 
 void drawRow(int sensorIdx, int y) {
   const int W = M5.Display.width();
@@ -754,12 +1050,20 @@ void drawRow(int sensorIdx, int y) {
   if (isStale) raw = "ERROR";
   String disp = formatValueForColumn2(raw, valueAreaW - 2);
   canvas.drawString(disp, valueRightX, y);
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (showGauge) {
     int gx = LEFT_PAD + C.labelW + C.gap + C.valueW + C.gap;
     int gy = y + (L.LINE_H - L.GAUGE_H) / 2;
     int gw = C.gaugeW;
     if (showBinary) drawBinaryGauge(gx, gy, gw, L.GAUGE_H, binaryIsPositive(sensorIdx));
     else drawGaugeBar(gx, gy, gw, L.GAUGE_H, gaugePercent(sensorIdx, sensors[sensorIdx].value.toFloat()));
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (isStale) {
       canvas.setFont(L.SMALL_FONT);
       canvas.setTextColor(COLOR_DIM, COLOR_BG);
@@ -771,6 +1075,11 @@ void drawRow(int sensorIdx, int y) {
   }
   (void)W;
 }
+
+/**
+ * @brief 「Today at a glance」カードを条件付きで描画します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 
 void drawTodayCard(int yStart) {
   const int W = M5.Display.width();
@@ -795,6 +1104,10 @@ void drawTodayCard(int yStart) {
   y += 18;
   dailyResetIfNeeded();
   String outs = "Outside: ";
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (daily.inited) {
     outs += "Hi " + String(daily.outTempMax, 1) + " / Lo " + String(daily.outTempMin, 1) + " degC";
     outs += "   Hum max " + String(daily.outHumMax, 1) + "%";
@@ -811,6 +1124,11 @@ void drawTodayCard(int yStart) {
   canvas.drawString(sys, cardMargin + cardW - 8, yStart + cardH - 6);
 }
 
+/**
+ * @brief ヘルプや最終更新時刻など、画面下部のフッターを描画します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
+
 void drawFooter() {
   const int W = M5.Display.width(), H = M5.Display.height();
   canvas.drawFastHLine(0, H - L.FOOTER_H, W, COLOR_LINE);
@@ -823,6 +1141,11 @@ void drawFooter() {
   String mqttInfo = String("Last MQTT update: ") + formatDateTime(g_lastMqttUpdate);
   canvas.drawString(mqttInfo, W / 2, line2Y);
 }
+
+/**
+ * @brief ダッシュボード全体を描画します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 
 void drawDashboard() {
   bool showGlance;
@@ -838,6 +1161,10 @@ void drawDashboard() {
     bool isHdr = rows[i].header != nullptr;
     int rh = isHdr ? (L.LINE_H + L.SEC_EXTRA) : L.LINE_H;
     if (y + rh > bottom) break;
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (isHdr) {
       if (i != 0) y += 6;
       canvas.setTextColor(COLOR_DIM, COLOR_BG);
@@ -851,6 +1178,10 @@ void drawDashboard() {
       y += L.LINE_H;
     }
   }
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (showGlance && y + 4 + L.GLANCE_H <= bottom) { drawTodayCard(y + 4); }
   drawFooter();
   canvas.pushSprite(0, 0);
@@ -861,6 +1192,11 @@ void drawDashboard() {
   M5.Display.waitDisplay();
   canvas.deleteSprite();
 }
+
+/**
+ * @brief タッチイベント（表示密度切替など）を処理します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 
 void handleTouch() {
   if (!M5.Touch.isEnabled()) return;
@@ -873,6 +1209,11 @@ void handleTouch() {
 }
 
 uint32_t lastRefresh = 0;
+
+/**
+ * @brief config.hの閾値/有効フラグを反映します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 
 void applyGaugeFromConfig() {
   setGauge(IDX_RAIN_CUR, GAUGE_RAIN_CUR_ENABLE, GAUGE_RAIN_CUR_MIN, GAUGE_RAIN_CUR_MAX);
@@ -892,29 +1233,50 @@ void applyGaugeFromConfig() {
   setGauge(IDX_STUDY_HUM, GAUGE_STUDY_HUM_ENABLE, GAUGE_STUDY_HUM_MIN, GAUGE_STUDY_HUM_MAX);
 }
 
+/**
+ * @brief 季節ごとのゲージ範囲（任意）を上書き適用します。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
+
 void applySeasonalOverrides(Season s) {
 #if ENABLE_SEASONAL_GAUGES
   {
     float mn = GAUGE_OUT_TEMP_MIN, mx = GAUGE_OUT_TEMP_MAX;
 #if defined(GAUGE_OUT_TEMP_MIN_SPRING) && defined(GAUGE_OUT_TEMP_MAX_SPRING)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_SPRING) {
       mn = GAUGE_OUT_TEMP_MIN_SPRING;
       mx = GAUGE_OUT_TEMP_MAX_SPRING;
     }
 #endif
 #if defined(GAUGE_OUT_TEMP_MIN_SUMMER) && defined(GAUGE_OUT_TEMP_MAX_SUMMER)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_SUMMER) {
       mn = GAUGE_OUT_TEMP_MIN_SUMMER;
       mx = GAUGE_OUT_TEMP_MAX_SUMMER;
     }
 #endif
 #if defined(GAUGE_OUT_TEMP_MIN_AUTUMN) && defined(GAUGE_OUT_TEMP_MAX_AUTUMN)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_AUTUMN) {
       mn = GAUGE_OUT_TEMP_MIN_AUTUMN;
       mx = GAUGE_OUT_TEMP_MAX_AUTUMN;
     }
 #endif
 #if defined(GAUGE_OUT_TEMP_MIN_WINTER) && defined(GAUGE_OUT_TEMP_MAX_WINTER)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_WINTER) {
       mn = GAUGE_OUT_TEMP_MIN_WINTER;
       mx = GAUGE_OUT_TEMP_MAX_WINTER;
@@ -925,24 +1287,40 @@ void applySeasonalOverrides(Season s) {
   {
     float mn = GAUGE_PICO_TEMP_MIN, mx = GAUGE_PICO_TEMP_MAX;
 #if defined(GAUGE_PICO_TEMP_MIN_SPRING) && defined(GAUGE_PICO_TEMP_MAX_SPRING)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_SPRING) {
       mn = GAUGE_PICO_TEMP_MIN_SPRING;
       mx = GAUGE_PICO_TEMP_MAX_SPRING;
     }
 #endif
 #if defined(GAUGE_PICO_TEMP_MIN_SUMMER) && defined(GAUGE_PICO_TEMP_MAX_SUMMER)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_SUMMER) {
       mn = GAUGE_PICO_TEMP_MIN_SUMMER;
       mx = GAUGE_PICO_TEMP_MAX_SUMMER;
     }
 #endif
 #if defined(GAUGE_PICO_TEMP_MIN_AUTUMN) && defined(GAUGE_PICO_TEMP_MAX_AUTUMN)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_AUTUMN) {
       mn = GAUGE_PICO_TEMP_MIN_AUTUMN;
       mx = GAUGE_PICO_TEMP_MAX_AUTUMN;
     }
 #endif
 #if defined(GAUGE_PICO_TEMP_MIN_WINTER) && defined(GAUGE_PICO_TEMP_MAX_WINTER)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_WINTER) {
       mn = GAUGE_PICO_TEMP_MIN_WINTER;
       mx = GAUGE_PICO_TEMP_MAX_WINTER;
@@ -953,24 +1331,40 @@ void applySeasonalOverrides(Season s) {
   {
     float mn = GAUGE_STUDY_TEMP_MIN, mx = GAUGE_STUDY_TEMP_MAX;
 #if defined(GAUGE_STUDY_TEMP_MIN_SPRING) && defined(GAUGE_STUDY_TEMP_MAX_SPRING)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_SPRING) {
       mn = GAUGE_STUDY_TEMP_MIN_SPRING;
       mx = GAUGE_STUDY_TEMP_MAX_SPRING;
     }
 #endif
 #if defined(GAUGE_STUDY_TEMP_MIN_SUMMER) && defined(GAUGE_STUDY_TEMP_MAX_SUMMER)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_SUMMER) {
       mn = GAUGE_STUDY_TEMP_MIN_SUMMER;
       mx = GAUGE_STUDY_TEMP_MAX_SUMMER;
     }
 #endif
 #if defined(GAUGE_STUDY_TEMP_MIN_AUTUMN) && defined(GAUGE_STUDY_TEMP_MAX_AUTUMN)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_AUTUMN) {
       mn = GAUGE_STUDY_TEMP_MIN_AUTUMN;
       mx = GAUGE_STUDY_TEMP_MAX_AUTUMN;
     }
 #endif
 #if defined(GAUGE_STUDY_TEMP_MIN_WINTER) && defined(GAUGE_STUDY_TEMP_MAX_WINTER)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_WINTER) {
       mn = GAUGE_STUDY_TEMP_MIN_WINTER;
       mx = GAUGE_STUDY_TEMP_MAX_WINTER;
@@ -981,24 +1375,40 @@ void applySeasonalOverrides(Season s) {
   {
     float mn = GAUGE_PICO_THI_MIN, mx = GAUGE_PICO_THI_MAX;
 #if defined(GAUGE_PICO_THI_MIN_SPRING) && defined(GAUGE_PICO_THI_MAX_SPRING)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_SPRING) {
       mn = GAUGE_PICO_THI_MIN_SPRING;
       mx = GAUGE_PICO_THI_MAX_SPRING;
     }
 #endif
 #if defined(GAUGE_PICO_THI_MIN_SUMMER) && defined(GAUGE_PICO_THI_MAX_SUMMER)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_SUMMER) {
       mn = GAUGE_PICO_THI_MIN_SUMMER;
       mx = GAUGE_PICO_THI_MAX_SUMMER;
     }
 #endif
 #if defined(GAUGE_PICO_THI_MIN_AUTUMN) && defined(GAUGE_PICO_THI_MAX_AUTUMN)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_AUTUMN) {
       mn = GAUGE_PICO_THI_MIN_AUTUMN;
       mx = GAUGE_PICO_THI_MAX_AUTUMN;
     }
 #endif
 #if defined(GAUGE_PICO_THI_MIN_WINTER) && defined(GAUGE_PICO_THI_MAX_WINTER)
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s == SEASON_WINTER) {
       mn = GAUGE_PICO_THI_MIN_WINTER;
       mx = GAUGE_PICO_THI_MAX_WINTER;
@@ -1008,6 +1418,11 @@ void applySeasonalOverrides(Season s) {
   }
 #endif
 }
+
+/**
+ * @brief 一度だけ実行される初期化処理（Wi‑Fi/NTP/MQTT/描画準備など）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
 
 void setup() {
   auto cfg = M5.config();
@@ -1047,6 +1462,11 @@ void setup() {
   lastHealth = millis();
 }
 
+/**
+ * @brief メインループ（MQTT処理・描画更新・ヘルスチェック）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
+
 void loop() {
 #if ENABLE_WATCHDOG && defined(ARDUINO_ARCH_ESP32)
   esp_task_wdt_reset();
@@ -1055,22 +1475,42 @@ void loop() {
   mqttReconnect();
   if (mqtt.connected()) mqtt.loop();
   handleTouch();
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (millis() - lastRefresh > (REFRESH_SEC * 1000UL)) {
     drawDashboard();
     lastRefresh = millis();
   }
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (millis() - lastHealth > HEALTH_CHECK_INTERVAL_MS) {
     lastHealth = millis();
     size_t freeKB = ESP.getFreeHeap() / 1024;
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (freeKB < LOW_HEAP_RESTART_KB) {
       delay(50);
       ESP.restart();
     }
     initTimeIfEnabled();
   }
+  /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
   if (millis() - g_lastSeasonCheckMs > 3600000UL) {
     g_lastSeasonCheckMs = millis();
     Season s = seasonFromLocalDate();
+    /**
+ * @brief if の主な役割をまとめた関数です（詳細は本文参照）。
+ * @note  初学者向けに：関数名と引数から役割を推測した説明です。実装に合わせて調整してください。
+ */
     if (s != g_currentSeason) {
       g_currentSeason = s;
       applySeasonalOverrides(g_currentSeason);
