@@ -5,6 +5,8 @@ It is designed to **survive broker outages and Wi‑Fi hiccups** without corrupt
 
 > 🇯🇵 Looking for Japanese docs? See **[README-ja.md](README-ja.md)**.
 
+<img width="905" height="909" alt="rrr" src="https://github.com/user-attachments/assets/d0ebcfca-0158-4ca4-8d13-bccb8f6b9326" />
+
 ---
 
 ## Highlights
